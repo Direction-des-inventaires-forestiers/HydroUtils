@@ -1,0 +1,6 @@
+/.vscode/
+.vscode/*
+/.git/
+.git/*
+*.pyc
+HydroUtils/whitebox_tools.exe
