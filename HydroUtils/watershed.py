@@ -260,9 +260,7 @@ class watershed(QgsProcessingAlgorithm):
                 path_d8 = path_d8[0]
                 udh = os.path.basename(path_d8)[14:18]
                 dict_d8 = load_raster(path_d8, readArray=False)
-
-                d8Crs = QgsCoordinateReferenceSystem()
-                d8Crs.createFromProj(dict_d8["proj"])
+                d8Crs = QgsCoordinateReferenceSystem("EPSG:6622")
 
                 path_occurrence_mask = os.path.join(tempdir, f"mask_occurrence_{ud_str}.sdat")
                 rasterize_AOI(vlayer_occurrence_selected, d8Crs.authid(), dict_d8["georef"], dict_d8["xsize"], dict_d8["ysize"], path_occurrence_mask)
