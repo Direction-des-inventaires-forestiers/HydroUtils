@@ -306,8 +306,7 @@ class flowpath(QgsProcessingAlgorithm):
             path_d8 = path_d8[0]
             udh = os.path.basename(path_d8)[14:18]
             dict_d8 = load_raster(path_d8, readArray=False)
-            d8Crs = QgsCoordinateReferenceSystem()
-            d8Crs.createFromProj(dict_d8["proj"])
+            d8Crs = QgsCoordinateReferenceSystem("EPSG:6622")
 
 
             # Si un buffer est demandé, alors je cherche le segment le plus près dans le rayon de recherche
