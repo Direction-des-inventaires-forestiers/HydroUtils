@@ -324,7 +324,7 @@ class watershed(QgsProcessingAlgorithm):
                 'METHOD':0
                 })
             
-            vlayer_streams.selectByExpression(f'"classe" = \'4. Permanent\'', QgsVectorLayer.IntersectSelection)
+            vlayer_streams.selectByExpression(f'"PERENNITE" = \'P\'', QgsVectorLayer.IntersectSelection)
 
             processing.run("native:selectbylocation", {
                 'INPUT':vlayer_indexUD,
@@ -334,22 +334,24 @@ class watershed(QgsProcessingAlgorithm):
                 })
             context.project().removeMapLayer(vlayer_streams.id())
 
-            set_ud_intersect = set([feature["NO_UD"] for feature in vlayer_indexUD.getSelectedFeatures()])
+            set_ud_intersect = set([feature["S_UDH"] for feature in vlayer_indexUD.getSelectedFeatures()])
             set_ud_ori = set(ls_ud)
             ls_ud_upstream = list(set_ud_intersect.difference(set_ud_ori))
+            print(ls_ud_upstream)
 
-            if len(ls_ud_upstream) > 0:
+            if len(ls_ud_upstream):
                 # Analyse du réseau
                 G = nx.DiGraph()
-                G.add_edges_from([(feature["NO_UD"], feature["UD_EN_AVAL"]) for feature in vlayer_indexUD.getFeatures() if feature["UD_EN_AVAL"] != None])
+                G.add_edges_from([(feature["S_UDH"], feature["S_UDH_AVAL"]) for feature in vlayer_indexUD.getFeatures() if feature["S_UDH_AVAL"] != None])
                 upstream_nodes = ls_ud_upstream + [node_from for node_from, *_ in nx.edge_dfs(G, ls_ud_upstream, orientation="reverse")]
                 upstream_nodes = set(str(x) for x in upstream_nodes)
+                print(upstream_nodes)
 
 
                 # Extraction et fusion des UD pertinentes
                 upstream_watersheds = processing.run("native:extractbyexpression", {
                     'INPUT':vlayer_indexUD,
-                    'EXPRESSION':f'"NO_UD" IN ({",".join(upstream_nodes)})',
+                    'EXPRESSION':f'"S_UDH" IN ({",".join(upstream_nodes)})',
                     'OUTPUT':'TEMPORARY_OUTPUT'
                     })["OUTPUT"]
 
