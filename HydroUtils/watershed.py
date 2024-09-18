@@ -402,9 +402,11 @@ class watershed(QgsProcessingAlgorithm):
 
  
     def postProcessAlgorithm(self, context, feedback):
-        output = QgsProcessingUtils.mapLayerFromString(self.sink_id, context)
-        output.loadNamedStyle(os.path.join(self.script_dir, "bv.qml"))
-        output.triggerRepaint()
+        if self.success:
+            output = QgsProcessingUtils.mapLayerFromString(self.sink_id, context)
+            output.loadNamedStyle(os.path.join(self.script_dir, "bv.qml"))
+            output.triggerRepaint()
+
         return {}
 
     def name(self):
