@@ -57,6 +57,7 @@ class watershed(QgsProcessingAlgorithm):
 
     script_dir = os.path.dirname(__file__)
     dict_config = get_config(script_dir)
+    success = True
 
     def initAlgorithm(self, config):
         self.addParameter(
@@ -109,8 +110,8 @@ class watershed(QgsProcessingAlgorithm):
         )
 
     def processAlgorithm(self, parameters, context, feedback):
-        roottempdir = self.parameterAsString(parameters, 'INPUT_tempdir', context)
-        dird8 = self.parameterAsString(parameters, 'INPUT_d8', context)
+        roottempdir = os.path.normpath(self.parameterAsString(parameters, 'INPUT_tempdir', context))
+        dird8 = os.path.normpath(self.parameterAsString(parameters, 'INPUT_d8', context))
         vlayer_occurrences_ori = self.parameterAsVectorLayer(parameters, 'INPUT_occurrences', context)
         bool_only_selected = self.parameterAsBool(parameters, 'INPUT_only_selected', context)
         field_occurrences = self.parameterAsFields(parameters, 'INPUT_field_occurrences', context)[0]
@@ -119,18 +120,21 @@ class watershed(QgsProcessingAlgorithm):
         # Chargement de l'index d'UD et des écoulements linéaires
         path_index = glob.glob(os.path.join(dird8, f"Hydro_LiDAR_????.gpkg"))
         if len(path_index) == 0:
-            feedback.reportError(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {dird8}.")
+            self.success = False
+            feedback.reportError(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {dird8}.\n")
             return {}
         
         udh = path_index[0][-9:-5]
         vlayer_streams = QgsVectorLayer(f"{path_index[0]}|layername=RH_L")
         if vlayer_streams.hasFeatures() == 0:
-            feedback.reportError(f"La couche d'hydrographie linéaire (RH_L) ne semble pas être présente ou ne contient aucune entitée.")
+            self.success = False
+            feedback.reportError(f"La couche d'hydrographie linéaire (RH_L) ne semble pas être présente ou ne contient aucune entitée.\n")
             return {}
         
         vlayer_indexUD = QgsVectorLayer(f"{path_index[0]}|layername=S_UDH")
         if vlayer_indexUD.hasFeatures() == 0:
-            feedback.reportError(f"La couche d'index des sous-unités de découpage hydrique (S_UDH) ne semble pas être présente ou ne contient aucune entitée.")
+            self.success = False
+            feedback.reportError(f"La couche d'index des sous-unités de découpage hydrique (S_UDH) ne semble pas être présente ou ne contient aucune entitée.\n")
             return {}
 
 
@@ -189,13 +193,14 @@ class watershed(QgsProcessingAlgorithm):
         context.project().removeMapLayer(vlayer_occurrences.id())
         
         if vlayer_occurrences_touched.hasFeatures() == 0:
-            feedback.reportError("Aucune occurrence ne touche aux à l'UDH.")
+            self.success = False
+            feedback.reportError("Aucune occurrence ne touche aux à l'UDH.\n")
             return {}
 
         ID_ori = set([str(feature.attribute(field_occurrences)) for feature in vlayer_occurrences.getSelectedFeatures(request)])
         ID_touched = set([str(feature.attribute(field_occurrences)) for feature in vlayer_occurrences_touched.getFeatures(request)])
         ID_diff = list(ID_ori.difference(ID_touched))
-        if len(ID_diff) > 0:
+        if len(ID_diff):
             if len(ID_diff) > 1:
                 accord = "les occurrences sélectionnées suivantes ne seront pas traitées car elles ne touchent"
             else:
@@ -206,7 +211,7 @@ class watershed(QgsProcessingAlgorithm):
 
         # Avertissement si les occurrences sont multipart
         if QgsWkbTypes.isMultiType(vlayer_occurrences_touched.wkbType()):
-            feedback.pushInfo("--> Attention, les occurrences étant de type multi-parties, certains bassins versants pourraient être incomplets. Il vaudrait mieux transformer en parties uniques.\n")
+            feedback.pushInfo("--> Attention, la couche d'occurrences étant de type multi-parties, vous pourriez obtenir des bassins versants disjoints.\n")
 
 
         # Bouclage pour traiter toutes occurrences consécutivement
@@ -223,8 +228,8 @@ class watershed(QgsProcessingAlgorithm):
             feedback.pushInfo(f"- occurrence {ID} ({ii+1}/{nb_occurrences})")
 
             # Création du répertoire temporaire
-            now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-            tempdir = os.path.join(roottempdir, f"HydroUtils_occurrence_{ID}_{now[:8]}_{now[8:]}")
+            now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            tempdir = os.path.join(roottempdir, f"HydroUtils_occurrence_{ID}_{now}")
             os.makedirs(tempdir)
             print("Répertoire temporaire => " + tempdir)
 
@@ -254,7 +259,8 @@ class watershed(QgsProcessingAlgorithm):
                 # Rasterisation de l'occurrence dans la projection de l'UD
                 path_d8 = glob.glob(os.path.join(dird8, f"D8_directions_????_{ud_str}_*.sdat"))
                 if len(path_d8) == 0:
-                    feedback.reportError(f"La matrice de directions de flux pour la sous-unité de découpage hydrique {ud_str} ne semble pas disponible.")
+                    self.success = False
+                    feedback.reportError(f"La matrice de directions de flux pour la sous-unité de découpage hydrique {ud_str} ne semble pas disponible.\n")
                     return {}
                 
                 path_d8 = path_d8[0]
