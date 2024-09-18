@@ -387,9 +387,12 @@ class watershed(QgsProcessingAlgorithm):
             geom = vlayer_watershed.getFeature(1).geometry()
             geom.transform( QgsCoordinateTransform(vlayer_watershed.crs(), sinkCrs, QgsProject.instance()) )
 
+            geom_6624 = QgsGeometry(geom)
+            geom_6624.transform( QgsCoordinateTransform(sinkCrs, QgsCoordinateReferenceSystem("EPSG:6624"), QgsProject.instance()) )
+
             fet = QgsFeature()
             fet.setGeometry(geom)
-            fet.setAttributes([ID, udh, geom.area() / 10000])
+            fet.setAttributes([ID, udh, geom_6624.area() / 10000])  # superficie en Albers
             sink.addFeature(fet)
             feedback.setProgress((ii+1) / nb_occurrences * 100)
             feedback.pushInfo("")
