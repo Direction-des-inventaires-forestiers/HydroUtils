@@ -81,8 +81,8 @@ class watershed(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'INPUT_occurrences',
-                'occurrences',
-                [QgsProcessing.TypeVectorPoint, QgsProcessing.TypeVectorPolygon, QgsProcessing.TypeVectorLine]
+                'Occurrences (lignes ou polygones)',
+                [QgsProcessing.TypeVectorLine, QgsProcessing.TypeVectorPolygon]
             )
         )
         
@@ -124,7 +124,11 @@ class watershed(QgsProcessingAlgorithm):
             self.success = False
             feedback.reportError(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {dird8}.\n")
             return {}
-        
+        elif len(path_index) > 1:
+            self.success = False
+            feedback.reportError("Plusieurs fichiers contenant des écoulements (Hydro_LiDAR_00XX.gpkg) ont été trouvés. Veuillez séparer chaque UDH dans son propre répertoire.\n")
+            return {}
+
         udh = path_index[0][-9:-5]
         vlayer_streams = QgsVectorLayer(f"{path_index[0]}|layername=RH_L")
         if vlayer_streams.hasFeatures() == 0:
@@ -239,7 +243,7 @@ class watershed(QgsProcessingAlgorithm):
             if feedback.isCanceled():
                 return {}
 
-            feedback.pushInfo(f"{ii+1}/{nb_occurrences} - Occurrence {ID}")
+            feedback.pushInfo(f"{ii+1}/{nb_occurrences} - Occurrence \"{ID}\"")
 
             # Création du répertoire temporaire
             now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
