@@ -407,8 +407,11 @@ class watershed(QgsProcessingAlgorithm):
     def postProcessAlgorithm(self, context, feedback):
         if self.success:
             output = QgsProcessingUtils.mapLayerFromString(self.sink_id, context)
-            output.loadNamedStyle(os.path.join(self.script_dir, "bv.qml"))
+            output.loadNamedStyle(os.path.join(self.script_dir, "bv.qml"), True)
             output.triggerRepaint()
+
+            if self.sink_id[-5:].lower() == ".gpkg":
+                output.saveStyleToDatabase(name="Bassins", description="", useAsDefault=True, uiFileContent="")
 
         return {}
 

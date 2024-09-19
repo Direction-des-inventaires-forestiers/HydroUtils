@@ -56,7 +56,7 @@
   </renderer-v2>
   <labeling type="simple">
     <settings calloutType="simple">
-      <text-style multilineHeight="1" previewBkgrdColor="255,255,255,255" fontSizeMapUnitScale="3x:0,0,0,0,0,0" fontKerning="1" capitalization="0" textColor="0,77,168,255" legendString="Aa" fontItalic="0" fontFamily="Arial" fontUnderline="0" fontSize="12" fontWordSpacing="0" isExpression="1" allowHtml="0" fieldName="map_avals(attributes())[0]" fontStrikeout="0" useSubstitutions="0" namedStyle="Gras" textOrientation="horizontal" fontSizeUnit="Point" textOpacity="1" fontWeight="75" fontLetterSpacing="0" blendMode="0">
+      <text-style multilineHeight="1" previewBkgrdColor="255,255,255,255" fontSizeMapUnitScale="3x:0,0,0,0,0,0" fontKerning="1" capitalization="0" textColor="0,77,168,255" legendString="Aa" fontItalic="0" fontFamily="Arial" fontUnderline="0" fontSize="12" fontWordSpacing="0" isExpression="1" allowHtml="0" fieldName="map_avals(attributes())[-1]" fontStrikeout="0" useSubstitutions="0" namedStyle="Gras" textOrientation="horizontal" fontSizeUnit="Point" textOpacity="1" fontWeight="75" fontLetterSpacing="0" blendMode="0">
         <families/>
         <text-buffer bufferDraw="1" bufferJoinStyle="128" bufferBlendMode="0" bufferColor="250,250,250,255" bufferSizeUnits="MM" bufferOpacity="1" bufferSize="1" bufferSizeMapUnitScale="3x:0,0,0,0,0,0" bufferNoFill="1"/>
         <text-mask maskSizeUnits="MM" maskedSymbolLayers="" maskEnabled="0" maskType="0" maskOpacity="1" maskSizeMapUnitScale="3x:0,0,0,0,0,0" maskSize="0" maskJoinStyle="128"/>
