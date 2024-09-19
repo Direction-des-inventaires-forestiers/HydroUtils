@@ -44,6 +44,7 @@ from qgis.analysis import QgsNativeAlgorithms
 
 import datetime
 import glob
+import itertools
 import networkx as nx
 from operator import itemgetter
 import os
@@ -210,8 +211,21 @@ class watershed(QgsProcessingAlgorithm):
 
 
         # Avertissement si les occurrences sont multipart
-        if QgsWkbTypes.isMultiType(vlayer_occurrences_touched.wkbType()):
-            feedback.pushInfo("--> Attention, la couche d'occurrences étant de type multi-parties, vous pourriez obtenir des bassins versants disjoints.\n")
+        # Chaque entité est vérifiée pour palier au fait que les SHP provenant d'ESRI sont toujours lus
+        # comme étant multipart même si toutes les géométries sont individuellement simplepart
+        containsMultipart = False
+        for feature in vlayer_occurrences_touched.getFeatures():
+            nb_parts = len(list(feature.geometry().constParts()))
+            if nb_parts > 1:
+                containsMultipart = True
+
+        if containsMultipart:
+            feedback.pushInfo(" --> Attention! Vous pourriez obtenir des bassins versants disjoints puisque la couche d'occurrences contient certaines géométries multiparties.\n")
+
+
+        # Construction du graph des écoulements pour déterminer plus tard si des S_UDH
+        # plus en amont doivent être ajoutés au bassin versant délimité
+        G = getStreamsGraph(vlayer_streams)
 
 
         # Bouclage pour traiter toutes occurrences consécutivement
@@ -225,7 +239,7 @@ class watershed(QgsProcessingAlgorithm):
             if feedback.isCanceled():
                 return {}
 
-            feedback.pushInfo(f"- occurrence {ID} ({ii+1}/{nb_occurrences})")
+            feedback.pushInfo(f"{ii+1}/{nb_occurrences} - Occurrence {ID}")
 
             # Création du répertoire temporaire
             now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -312,78 +326,97 @@ class watershed(QgsProcessingAlgorithm):
                 })["OUTPUT"]
 
 
+
             ## Ajout des UD en amont si le bassin versant initial touche à des exutoires en amont
+            # Les occurences sont analysées individuellement afin de gérer adéquatement le cas des multiparties.
+            # En effet, si des parties sont dans des S_UDH différentes et que l'une des ces S_UDH se trouve en amont
+            # d'une autre, le script excluerait la S_UDH située en amont du bassin versant final.
+            # ATTENTION ! Il est assumé que les occurences en entrées intersectent des écoulements. Si ce n'est pas le cas,
+            #             et que le bassin versant englobe un S_UDH en amont, cette dernière sera manquée car la recherche
+            #             se base sur l'analyse réseau des écoulements vetoriels.
 
-            # Création de la liste des UD immédiatement en amont
-            # La démarche fonctionne pour le moment car les matrices de direction de flux ont un buffer et
-            # débordent donc chez les voisines. Ce sera à revoir lorsque les matrices s'imbriqueront parfaitement
-            vlayer_perimeter = processing.run("native:polygonstolines", {
-                'INPUT':vlayer_watershed,
+            occurrence_single = processing.run("native:multiparttosingleparts", {
+                'INPUT':vlayer_occurrence_selected,
                 'OUTPUT':'TEMPORARY_OUTPUT'
                 })["OUTPUT"]
 
-            context.project().addMapLayer(vlayer_streams, False)
-            processing.run("native:selectbylocation", {
-                'INPUT':vlayer_streams,
-                'PREDICATE':[0],
-                'INTERSECT':vlayer_perimeter,
-                'METHOD':0
-                })
-            
-            vlayer_streams.selectByExpression(f'"PERENNITE" = \'P\'', QgsVectorLayer.IntersectSelection)
+            ls_upstream_watersheds = []
+            for feature in occurrence_single.getFeatures():
 
-            processing.run("native:selectbylocation", {
-                'INPUT':vlayer_indexUD,
-                'PREDICATE':[0],
-                'INTERSECT':QgsProcessingFeatureSourceDefinition(vlayer_streams.id(), True),
-                'METHOD':0
-                })
-            context.project().removeMapLayer(vlayer_streams.id())
+                # Création de la liste des S_UDH immédiatement en amont
+                # Originalement, j'utilisais "vlayer_watershed" pour faire une intersection sur les S_UDH, mais s'il
+                # y a une divergence trop grande entre les modélisations et qu'un ruisseau permanent passe très près
+                # d'une S_UDH voisine, elle pourra être erronément sélectionnée. Il est donc plus sûr de passer par
+                # une analyse réseau basée sur les vecteurs même si ce n'est pas à toute épreuve non plus.
+                # La démarche aurait intérêt à être revue lorsque les matrices s'imbriqueront parfaitement même si
+                # cette façon de faire demeurera valide.
+                context.project().addMapLayer(vlayer_streams, False)
+                context.project().addMapLayer(occurrence_single, False)
+                occurrence_single.selectByIds([feature.id()])
+                processing.run("native:selectbylocation", {
+                    'INPUT':vlayer_streams,
+                    'PREDICATE':[0],
+                    'INTERSECT':QgsProcessingFeatureSourceDefinition(occurrence_single.id(), True),
+                    'METHOD':0
+                    })
+                
+                # Identification des derniers segments en amont
+                ls_starting_node = [str(feature.id()) for feature in vlayer_streams.getSelectedFeatures()]
+                all_upstream_nodes = [
+                    [int(node_from) for node_from, *_ in nx.edge_dfs(G, starting_node, orientation="reverse") if len(list(G.predecessors(node_from))) == 0]
+                    for starting_node
+                    in ls_starting_node
+                ]
 
-            set_ud_intersect = set([feature["S_UDH"] for feature in vlayer_indexUD.getSelectedFeatures()])
-            set_ud_ori = set(ls_ud)
-            ls_ud_upstream = list(set_ud_intersect.difference(set_ud_ori))
-            print(ls_ud_upstream)
-
-            if len(ls_ud_upstream):
-                # Analyse du réseau
-                G = nx.DiGraph()
-                G.add_edges_from([(feature["S_UDH"], feature["S_UDH_AVAL"]) for feature in vlayer_indexUD.getFeatures() if feature["S_UDH_AVAL"] != None])
-                upstream_nodes = ls_ud_upstream + [node_from for node_from, *_ in nx.edge_dfs(G, ls_ud_upstream, orientation="reverse")]
-                upstream_nodes = set(str(x) for x in upstream_nodes)
-                print(upstream_nodes)
-
-
-                # Extraction et fusion des UD pertinentes
-                upstream_watersheds = processing.run("native:extractbyexpression", {
+                vlayer_streams.selectByIds(list(itertools.chain.from_iterable(all_upstream_nodes)))
+                processing.run("native:selectbylocation", {
                     'INPUT':vlayer_indexUD,
-                    'EXPRESSION':f'"S_UDH" IN ({",".join(upstream_nodes)})',
-                    'OUTPUT':'TEMPORARY_OUTPUT'
-                    })["OUTPUT"]
+                    'PREDICATE':[1],  # Segments complètement contenus seulement
+                    'INTERSECT':QgsProcessingFeatureSourceDefinition(vlayer_streams.id(), True),
+                    'METHOD':0
+                    })
+                context.project().removeMapLayer(vlayer_streams.id())
+                context.project().removeMapLayer(occurrence_single.id())
 
+                # Identification des S_UDH en amont
+                set_ud_intersect = set([feature["S_UDH"] for feature in vlayer_indexUD.getSelectedFeatures()])
+                set_ud_ori = set(ls_ud)
+                set_ud_upstream = set_ud_intersect.difference(set_ud_ori)
+
+                if len(set_ud_upstream):
+                    # Extraction et fusion des S_UDH pertinentes
+                    upstream_watersheds = processing.run("native:extractbyexpression", {
+                        'INPUT':vlayer_indexUD,
+                        'EXPRESSION':f'"S_UDH" IN ({",".join([str(x) for x in set_ud_upstream])})',
+                        'OUTPUT':'TEMPORARY_OUTPUT'
+                        })["OUTPUT"]
+
+                    ls_upstream_watersheds.append(upstream_watersheds)
+
+
+            if len(ls_upstream_watersheds):
                 vlayer_watershed = processing.run("native:mergevectorlayers", {
-                    'LAYERS':[vlayer_watershed, upstream_watersheds],
+                    'LAYERS':ls_upstream_watersheds + [vlayer_watershed],
+                    'OUTPUT':'TEMPORARY_OUTPUT'
+                    })["OUTPUT"]
+
+                vlayer_watershed = processing.run("native:dissolve", {
+                    'INPUT':vlayer_watershed,
+                    'FIELD':[],
+                    'OUTPUT':'TEMPORARY_OUTPUT'
+                    })["OUTPUT"]
+                
+                # Retrait des trous entre UD... éventuellement il faudrait plutôt que je règle ce problème à la
+                # source en ayant des matrices de direction de flux qui s'imbriquent parfaitement. Il faut donc
+                # régler le problème d'incertitude avec les modélisations adjacentes.
+                vlayer_watershed = processing.run("native:deleteholes", {
+                    'INPUT':vlayer_watershed,
+                    'MIN_AREA':2000,
                     'OUTPUT':'TEMPORARY_OUTPUT'
                     })["OUTPUT"]
 
 
-            vlayer_watershed = processing.run("native:dissolve", {
-                'INPUT':vlayer_watershed,
-                'FIELD':[],
-                'OUTPUT':'TEMPORARY_OUTPUT'
-                })["OUTPUT"]
-            
-            # Retrait des trous entre UD... éventuellement il faudrait plutôt que je règle ce problème à la
-            # source en ayant des matrices de direction de flux qui s'imbriqueent parfaitement. Il faut donc
-            # régler le problème d'incertitude en modélisation adjacente
-            vlayer_watershed = processing.run("native:deleteholes", {
-                'INPUT':vlayer_watershed,
-                'MIN_AREA':2000,
-                'OUTPUT':'TEMPORARY_OUTPUT'
-                })["OUTPUT"]
-
-
-            # Ajouter la géométrie au sink en faisant suivre le numéro de l'occurrence ainsi que le numéro d'UDH
+            # Ajout de la géométrie au sink en faisant suivre le numéro de l'occurrence ainsi que le numéro d'UDH
             geom = vlayer_watershed.getFeature(1).geometry()
             geom.transform( QgsCoordinateTransform(vlayer_watershed.crs(), sinkCrs, QgsProject.instance()) )
 

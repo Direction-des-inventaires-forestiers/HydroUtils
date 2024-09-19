@@ -19,6 +19,7 @@ from qgis.analysis import QgsNativeAlgorithms
 
 import configparser
 import datetime
+import networkx as nx
 import numpy as np
 import os
 from osgeo import gdal, ogr
@@ -171,3 +172,57 @@ def correct_SGRD(filepath, cellsize=None, nodata=None):
 
         f.seek(0)
         f.writelines(ls_lines)
+
+
+# Création d'un graphe des écoulements en utilisant les feature.id() comme valeur de noeuds
+# À noter que les noeuds retournés dans le graphe sont toujours sous forme de "str" et non de "int"
+# La raison est que lorsqu'un graphe est enregistré dans un fichier GML puis rechargé, les entiers
+# sont lus en tant que chaînes de caractères. Il est donc plus simple de définir les noeuds en tant
+# que "str" partout
+def getStreamsGraph(streams, tolerance = 0.00001):
+    # Construction du dictionnaire d'extrémités ainsi que du QgsVectorLayer des extrémités de départ
+    startPoints = QgsVectorLayer(f"point?crs={streams.crs().authid()}", "startPoints", "memory")
+    dict_endPoints = dict()
+    tolerance_squared = tolerance ** 2
+    tolerance_failed = False
+
+
+    with edit(startPoints):
+        request = QgsFeatureRequest().setNoAttributes()
+        for ii, feature in enumerate(streams.getFeatures(request)):
+            linestring = next(feature.geometry().constParts())
+
+            # Ajout au QgsVectorLayer du point de début du segment
+            pt_start = QgsPoint(linestring.xAt(0), linestring.yAt(0))
+            fet = QgsFeature()
+            fet.setGeometry(pt_start)
+            startPoints.addFeature(fet)
+
+            # Ajout au dictionnaire des extrémités du point de fin du segment
+            # La clé du dictionnaire est une suite à partir de 1 afin de concorder
+            # avec les ID du QgsVectorLayer qui seront également consécutif à partir de 1.
+            # Cette approche permet de conserver un lien avec les ID originaux de "streams"
+            pt_end_x = linestring.xAt(-1)
+            pt_end_y = linestring.yAt(-1)
+            dict_endPoints[ii + 1] = (str(feature.id()), pt_end_x, pt_end_y)
+
+            # Vérification que la distance entre les deux extrémités
+            # est toujours plus grande que la valeur de tolérance
+            dist = pt_start.distanceSquared(pt_end_x, pt_end_y)
+            if dist <= tolerance_squared:
+                tolerance_failed = True
+                print(f"Stream located around x:{round(pt_end_x, 1)} y:{round(pt_end_y, 1)} has its ends closer than the tolerance value ({tolerance}).")
+
+    if tolerance_failed:
+        raise Exception("Some streams have their ends too close together (see console for details)")
+
+    spatialIndex_startPoints = QgsSpatialIndexKDBush(startPoints)
+
+    # Ajout d'arêtes au graphe en trouvant les FID en aval de chacun des segments
+    G = nx.DiGraph()
+    for fid_ori_upstream, pt_end_x, pt_end_y in dict_endPoints.values():
+        ls_kdBushData = spatialIndex_startPoints.within(QgsPointXY(pt_end_x, pt_end_y), tolerance)
+        for kdBushData in ls_kdBushData:
+            G.add_edge(fid_ori_upstream, dict_endPoints[kdBushData.id][0])
+
+    return G
