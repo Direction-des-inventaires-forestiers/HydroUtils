@@ -357,8 +357,12 @@ class watershed(QgsProcessingAlgorithm):
                 # Création de la liste des S_UDH immédiatement en amont
                 # Originalement, j'utilisais "vlayer_watershed" pour faire une intersection sur les S_UDH, mais s'il
                 # y a une divergence trop grande entre les modélisations et qu'un ruisseau permanent passe très près
-                # d'une S_UDH voisine, elle pourra être erronément sélectionnée. Il est donc plus sûr de passer par
-                # une analyse réseau basée sur les vecteurs même si ce n'est pas à toute épreuve non plus.
+                # d'une S_UDH voisine, elle pourrait être erronément sélectionnée. Il est donc plus sûr de passer par
+                # une analyse réseau basée sur les vecteurs même si ce n'est pas à toute épreuve non plus. Par exemple,
+                # si une surface d'eau chevauche deux S_UDH sans être une rivière principale (un lac à deux exutoires
+                # par exemple), cela risque de causer une comfusion. Les sites exodés mais encore présents dans la GRHQ
+                # sont problématiques à cet égars. En limitant la sélection aux segments ayant un amont de plus 1500 m,
+                # je réduis le risque de faux amonts, mais c'est très hacky et pas à toute épreuve.
                 # La démarche aurait intérêt à être revue lorsque les matrices s'imbriqueront parfaitement même si
                 # cette façon de faire demeurera valide.
                 context.project().addMapLayer(vlayer_streams, False)
@@ -380,29 +384,32 @@ class watershed(QgsProcessingAlgorithm):
                 ]
 
                 vlayer_streams.selectByIds(list(itertools.chain.from_iterable(all_upstream_nodes)))
-                processing.run("native:selectbylocation", {
-                    'INPUT':vlayer_indexUD,
-                    'PREDICATE':[1],  # Segments complètement contenus seulement
-                    'INTERSECT':QgsProcessingFeatureSourceDefinition(vlayer_streams.id(), True),
-                    'METHOD':0
-                    })
+                vlayer_streams.selectByExpression('"DIST_DE_M" > 1500', QgsVectorLayer.IntersectSelection)
+                if vlayer_streams.selectedFeatureCount():
+                    processing.run("native:selectbylocation", {
+                        'INPUT':vlayer_indexUD,
+                        'PREDICATE':[1],  # Segments complètement contenus seulement
+                        'INTERSECT':QgsProcessingFeatureSourceDefinition(vlayer_streams.id(), True),
+                        'METHOD':0
+                        })
+
+                    # Identification des S_UDH en amont
+                    set_ud_intersect = set([feature["S_UDH"] for feature in vlayer_indexUD.getSelectedFeatures()])
+                    set_ud_ori = set(ls_ud)
+                    set_ud_upstream = set_ud_intersect.difference(set_ud_ori)
+
+                    if len(set_ud_upstream):
+                        # Extraction et fusion des S_UDH pertinentes
+                        upstream_watersheds = processing.run("native:extractbyexpression", {
+                            'INPUT':vlayer_indexUD,
+                            'EXPRESSION':f'"S_UDH" IN ({",".join([str(x) for x in set_ud_upstream])})',
+                            'OUTPUT':'TEMPORARY_OUTPUT'
+                            })["OUTPUT"]
+
+                        ls_upstream_watersheds.append(upstream_watersheds)
+                
                 context.project().removeMapLayer(vlayer_streams.id())
                 context.project().removeMapLayer(occurrence_single.id())
-
-                # Identification des S_UDH en amont
-                set_ud_intersect = set([feature["S_UDH"] for feature in vlayer_indexUD.getSelectedFeatures()])
-                set_ud_ori = set(ls_ud)
-                set_ud_upstream = set_ud_intersect.difference(set_ud_ori)
-
-                if len(set_ud_upstream):
-                    # Extraction et fusion des S_UDH pertinentes
-                    upstream_watersheds = processing.run("native:extractbyexpression", {
-                        'INPUT':vlayer_indexUD,
-                        'EXPRESSION':f'"S_UDH" IN ({",".join([str(x) for x in set_ud_upstream])})',
-                        'OUTPUT':'TEMPORARY_OUTPUT'
-                        })["OUTPUT"]
-
-                    ls_upstream_watersheds.append(upstream_watersheds)
 
 
             if len(ls_upstream_watersheds):
