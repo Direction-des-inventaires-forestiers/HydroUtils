@@ -25,6 +25,10 @@
    ou égale à zéro sinon le résultat n'est pas bon. C'est probablement à la ligne 381 de watershed.rs que le problème se trouve. À noter que si la
    valuer de NoData spécifiée dans l'en-tête ne se trouve pas en réalité dans le raster, ça ne cause pas problème. En fait, j'ai l'impression
    que la nodata ne sert juste à rien dans cet outil. Toute valeur égale ou inférieure à 0 est considérée NoData, point à la ligne.
+
+ - Il y a aussi un limitation dans WBT qui fait en sorte que les chemins d'accès ne peuvent pas contenir d'espace (pour un raster en sortie du moins).
+   Ce serait à rapporter et à corriger. Pour contourner le problème, je retire les espaces dans le nom de l'entité utilisée pour
+   construire le nom du répertoire temporaire.
 """
 
 __author__ = 'Jean-François Bourdon (MFFP-DIF)'
@@ -199,7 +203,7 @@ class watershed(QgsProcessingAlgorithm):
         
         if vlayer_occurrences_touched.hasFeatures() == 0:
             self.success = False
-            feedback.reportError("Aucune occurrence ne touche aux à l'UDH.\n")
+            feedback.reportError("Aucune occurrence ne touche à l'UDH.\n")
             return {}
 
         ID_ori = set([str(feature.attribute(field_occurrences)) for feature in vlayer_occurrences.getSelectedFeatures(request)])
@@ -207,11 +211,11 @@ class watershed(QgsProcessingAlgorithm):
         ID_diff = list(ID_ori.difference(ID_touched))
         if len(ID_diff):
             if len(ID_diff) > 1:
-                accord = "les occurrences sélectionnées suivantes ne seront pas traitées car elles ne touchent"
+                accord = "Les occurrences sélectionnées suivantes ne seront pas traitées car elles ne touchent"
             else:
-                accord = "l'occurrence sélectionnée suivante ne sera pas traitée car elle ne touche"
+                accord = "L'occurrence sélectionnée suivante ne sera pas traitée car elle ne touche"
             
-            feedback.pushInfo(f"--> Attention, {accord} à pas l'UDH: {', '.join(ID_diff)}\n")
+            feedback.pushInfo(f"--> Attention! {accord} pas à l'UDH: {', '.join(ID_diff)}\n")
 
 
         # Avertissement si les occurrences sont multipart
@@ -337,8 +341,7 @@ class watershed(QgsProcessingAlgorithm):
             # d'une autre, le script excluerait la S_UDH située en amont du bassin versant final.
             # ATTENTION ! Il est assumé que les occurences en entrées intersectent des écoulements. Si ce n'est pas le cas,
             #             et que le bassin versant englobe un S_UDH en amont, cette dernière sera manquée car la recherche
-            #             se base sur l'analyse réseau des écoulements vetoriels.
-
+            #             se base sur l'analyse réseau des écoulements vectoriels.
             occurrence_single = processing.run("native:multiparttosingleparts", {
                 'INPUT':vlayer_occurrence_selected,
                 'OUTPUT':'TEMPORARY_OUTPUT'
