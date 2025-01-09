@@ -277,7 +277,7 @@ class watershed(QgsProcessingAlgorithm):
 
             # Bouclage pour extraire le bassin versant pour chaque UD touchée par l'occurrence
             ls_ud = [feature["S_UDH"] for feature in vlayer_indexUD_touched.getFeatures(request)]
-            ls_path_watershed = []
+            ls_path_occurrences_watersheds = []
             for ud in ls_ud:
                 ud_str = str(ud).zfill(3)
                 feedback.pushInfo(f"Calcul du bassin versant dans la sous-unité de découpage hydrique {ud_str}")
@@ -328,14 +328,7 @@ class watershed(QgsProcessingAlgorithm):
                 processing.run("native:collect", {'INPUT':vlayer_watersehd_fixed,'FIELD':['DN'],'OUTPUT':path_watershed_SHP})
                 processing.run("qgis:definecurrentprojection", {'INPUT':path_watershed_SHP, 'CRS':d8Crs})
 
-                ls_path_watershed.append(path_watershed_SHP)
-            
-
-            # Fusion des bassins versants initiaux
-            vlayer_watershed = processing.run("native:mergevectorlayers", {
-                'LAYERS':ls_path_watershed,
-                'OUTPUT':'TEMPORARY_OUTPUT'
-                })["OUTPUT"]
+                ls_path_occurrences_watersheds.append(path_watershed_SHP)
 
 
 
@@ -375,10 +368,12 @@ class watershed(QgsProcessingAlgorithm):
                     'METHOD':0
                     })
                 
-                # Identification des derniers segments en amont
+                # Identification et sélection des segments en amont situés à au moins 1500 m de l'amont
+                # Cette valeur est seulement pour réduire le risque s'une superposition avec une S_UDH voisine.
+                # Ce critère ne sera plus pertinent lors que les S_UDH s'imbriqueront parfaitement.
                 ls_starting_node = [str(feature.id()) for feature in vlayer_streams.getSelectedFeatures()]
                 all_upstream_nodes = [
-                    [int(node_from) for node_from, *_ in nx.edge_dfs(G, starting_node, orientation="reverse") if len(list(G.predecessors(node_from))) == 0]
+                    [int(node_from) for node_from, *_ in nx.edge_dfs(G, starting_node, orientation="reverse")]
                     for starting_node
                     in ls_starting_node
                 ]
@@ -412,26 +407,28 @@ class watershed(QgsProcessingAlgorithm):
                 context.project().removeMapLayer(occurrence_single.id())
 
 
-            if len(ls_upstream_watersheds):
-                vlayer_watershed = processing.run("native:mergevectorlayers", {
-                    'LAYERS':ls_upstream_watersheds + [vlayer_watershed],
-                    'OUTPUT':'TEMPORARY_OUTPUT'
-                    })["OUTPUT"]
+            # Fusion des bassins versants
+            ls_watersheds = ls_path_occurrences_watersheds
+            ls_watersheds.extend(ls_upstream_watersheds)
+            vlayer_watershed = processing.run("native:mergevectorlayers", {
+                'LAYERS':ls_watersheds,
+                'OUTPUT':'TEMPORARY_OUTPUT'
+                })["OUTPUT"]
 
-                vlayer_watershed = processing.run("native:dissolve", {
-                    'INPUT':vlayer_watershed,
-                    'FIELD':[],
-                    'OUTPUT':'TEMPORARY_OUTPUT'
-                    })["OUTPUT"]
-                
-                # Retrait des trous entre UD... éventuellement il faudrait plutôt que je règle ce problème à la
-                # source en ayant des matrices de direction de flux qui s'imbriquent parfaitement. Il faut donc
-                # régler le problème d'incertitude avec les modélisations adjacentes.
-                vlayer_watershed = processing.run("native:deleteholes", {
-                    'INPUT':vlayer_watershed,
-                    'MIN_AREA':2000,
-                    'OUTPUT':'TEMPORARY_OUTPUT'
-                    })["OUTPUT"]
+            vlayer_watershed = processing.run("native:dissolve", {
+                'INPUT':vlayer_watershed,
+                'FIELD':[],
+                'OUTPUT':'TEMPORARY_OUTPUT'
+                })["OUTPUT"]
+
+            # Retrait des trous entre UD... éventuellement il faudrait plutôt que je règle ce problème à la
+            # source en ayant des matrices de direction de flux qui s'imbriquent parfaitement. Il faut donc
+            # régler le problème d'incertitude avec les modélisations adjacentes.
+            vlayer_watershed = processing.run("native:deleteholes", {
+                'INPUT':vlayer_watershed,
+                'MIN_AREA':99999,
+                'OUTPUT':'TEMPORARY_OUTPUT'
+                })["OUTPUT"]
 
 
             # Ajout de la géométrie au sink en faisant suivre le numéro de l'occurrence ainsi que le numéro d'UDH
