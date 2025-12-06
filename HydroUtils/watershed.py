@@ -23,12 +23,13 @@
 
  - Il y a un bug présentement dans l'outil Watershed de WBT qui fait en sorte que le raster de pour points doit avoir une valeur de nodata inférieure
    ou égale à zéro sinon le résultat n'est pas bon. C'est probablement à la ligne 381 de watershed.rs que le problème se trouve. À noter que si la
-   valuer de NoData spécifiée dans l'en-tête ne se trouve pas en réalité dans le raster, ça ne cause pas problème. En fait, j'ai l'impression
+   valeur de NoData spécifiée dans l'en-tête ne se trouve pas en réalité dans le raster, ça ne cause pas problème. En fait, j'ai l'impression
    que la nodata ne sert juste à rien dans cet outil. Toute valeur égale ou inférieure à 0 est considérée NoData, point à la ligne.
 
  - Il y a aussi un limitation dans WBT qui fait en sorte que les chemins d'accès ne peuvent pas contenir d'espace (pour un raster en sortie du moins).
    Ce serait à rapporter et à corriger. Pour contourner le problème, je retire les espaces dans le nom de l'entité utilisée pour
-   construire le nom du répertoire temporaire.
+   construire le nom du répertoire temporaire. En fait, vérifier si le problème n'est pas avec la façon dont j'envoie le nom de fichier à WBT, à savoir si
+   j'encadre bien le nom avec des guillemets dans la ligne de commande.
 """
 
 __author__ = 'Jean-François Bourdon (MFFP-DIF)'
@@ -89,7 +90,7 @@ class watershed(QgsProcessingAlgorithm):
                 [QgsProcessing.TypeVectorLine, QgsProcessing.TypeVectorPolygon]
             )
         )
-        
+
         self.addParameter(
             QgsProcessingParameterBoolean(
                 'INPUT_only_selected',
@@ -97,7 +98,7 @@ class watershed(QgsProcessingAlgorithm):
                 defaultValue=False
             )
         )
-    
+
         self.addParameter(
             QgsProcessingParameterField(
                 'INPUT_field_occurrences',
@@ -126,28 +127,25 @@ class watershed(QgsProcessingAlgorithm):
         path_index = glob.glob(os.path.join(dird8, f"Hydro_LiDAR_????.gpkg"))
         if len(path_index) == 0:
             self.success = False
-            feedback.reportError(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {dird8}.\n")
-            return {}
+            raise QgsProcessingError(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {dird8}.\n")
+
         elif len(path_index) > 1:
             self.success = False
-            feedback.reportError("Plusieurs fichiers contenant des écoulements (Hydro_LiDAR_00XX.gpkg) ont été trouvés. Veuillez séparer chaque UDH dans son propre répertoire.\n")
-            return {}
+            raise QgsProcessingError("Plusieurs fichiers contenant des écoulements (Hydro_LiDAR_00XX.gpkg) ont été trouvés. Veuillez séparer chaque UDH dans son propre répertoire.\n")
 
         udh = path_index[0][-9:-5]
         vlayer_streams = QgsVectorLayer(f"{path_index[0]}|layername=RH_L")
         if vlayer_streams.hasFeatures() == 0:
             self.success = False
-            feedback.reportError(f"La couche d'hydrographie linéaire (RH_L) ne semble pas être présente ou ne contient aucune entitée.\n")
-            return {}
-        
+            raise QgsProcessingError(f"La couche d'hydrographie linéaire (RH_L) ne semble pas être présente ou ne contient aucune entitée.\n")
+
         vlayer_indexUD = QgsVectorLayer(f"{path_index[0]}|layername=S_UDH")
         if vlayer_indexUD.hasFeatures() == 0:
             self.success = False
-            feedback.reportError(f"La couche d'index des sous-unités de découpage hydrique (S_UDH) ne semble pas être présente ou ne contient aucune entitée.\n")
-            return {}
+            raise QgsProcessingError(f"La couche d'index des sous-unités de découpage hydrographique (S_UDH) ne semble pas être présente ou ne contient aucune entitée.\n")
 
 
-        # Création du QgsVectorLayer de sortie contenant les bassins versants de chaque occurrence
+        # Création du QgsFeatureSink de sortie contenant les bassins versants de chaque occurrence
         fields_array = [
             vlayer_occurrences_ori.fields().field(field_occurrences),
             QgsField('UDH', QVariant.String, len=4),
@@ -181,8 +179,7 @@ class watershed(QgsProcessingAlgorithm):
         request = QgsFeatureRequest().setFlags(QgsFeatureRequest().NoGeometry)
         ls_ID = [feature.attribute(field_occurrences) for feature in vlayer_occurrences_ori.getFeatures(request)]
         if len(ls_ID) != len(set(ls_ID)):
-            feedback.reportError(f"Le champ {field_occurrences} contient des doublons.")
-            return {}
+            raise QgsProcessingError(f"Le champ {field_occurrences} contient des doublons.")
 
 
         # Sélection des occurrences à utiliser
@@ -200,11 +197,10 @@ class watershed(QgsProcessingAlgorithm):
             'OUTPUT':'TEMPORARY_OUTPUT'
             })["OUTPUT"]
         context.project().removeMapLayer(vlayer_occurrences.id())
-        
+
         if vlayer_occurrences_touched.hasFeatures() == 0:
             self.success = False
-            feedback.reportError("Aucune occurrence ne touche à l'UDH.\n")
-            return {}
+            raise QgsProcessingError("Aucune occurrence ne touche à l'UDH.\n")
 
         ID_ori = set([str(feature.attribute(field_occurrences)) for feature in vlayer_occurrences.getSelectedFeatures(request)])
         ID_touched = set([str(feature.attribute(field_occurrences)) for feature in vlayer_occurrences_touched.getFeatures(request)])
@@ -214,7 +210,7 @@ class watershed(QgsProcessingAlgorithm):
                 accord = "Les occurrences sélectionnées suivantes ne seront pas traitées car elles ne touchent"
             else:
                 accord = "L'occurrence sélectionnée suivante ne sera pas traitée car elle ne touche"
-            
+
             feedback.pushInfo(f"--> Attention! {accord} pas à l'UDH: {', '.join(ID_diff)}\n")
 
 
@@ -231,23 +227,23 @@ class watershed(QgsProcessingAlgorithm):
             feedback.pushInfo(" --> Attention! Vous pourriez obtenir des bassins versants disjoints puisque la couche d'occurrences contient certaines géométries multiparties.\n")
 
 
-        # Construction du graph des écoulements pour déterminer plus tard si des S_UDH
-        # plus en amont doivent être ajoutés au bassin versant délimité
+        # Construction du graphe des écoulements pour déterminer plus tard si des S_UDH
+        # plus en amont doivent être ajoutées au bassin versant délimité
         G = getStreamsGraph(vlayer_streams)
 
 
         # Bouclage pour traiter toutes occurrences consécutivement
-        ls_fids = [(feature.id(), feature.attribute(field_occurrences)) for feature in vlayer_occurrences_touched.getFeatures(request)]
+        ls_fids = [(feature.id(), str(feature.attribute(field_occurrences))) for feature in vlayer_occurrences_touched.getFeatures(request)]
         ls_fids.sort(key=itemgetter(1))
         nb_occurrences = len(ls_fids)
         feedback.setProgress(1)
 
-        for ii, (fid, ID) in enumerate(ls_fids):
+        for ii, (fid, ID) in enumerate(ls_fids, start=1):
 
             if feedback.isCanceled():
                 return {}
 
-            feedback.pushInfo(f"{ii+1}/{nb_occurrences} - Occurrence \"{ID}\"")
+            feedback.pushInfo(f"{ii}/{nb_occurrences} - Occurrence \"{ID}\"")
 
 
             # Création du répertoire temporaire
@@ -266,7 +262,7 @@ class watershed(QgsProcessingAlgorithm):
                 'INPUT':vlayer_occurrences_touched,
                 'OUTPUT':'TEMPORARY_OUTPUT'
                 })["OUTPUT"]
-            
+
             vlayer_indexUD_touched = processing.run("native:extractbylocation", {
                 'INPUT':vlayer_indexUD,
                 'PREDICATE':[0],
@@ -280,15 +276,14 @@ class watershed(QgsProcessingAlgorithm):
             ls_path_occurrences_watersheds = []
             for ud in ls_ud:
                 ud_str = str(ud).zfill(3)
-                feedback.pushInfo(f"Calcul du bassin versant dans la sous-unité de découpage hydrique {ud_str}")
+                feedback.pushInfo(f"Calcul du bassin versant dans la sous-unité de découpage hydrographique {ud_str}")
 
                 # Rasterisation de l'occurrence dans la projection de l'UD
                 path_d8 = glob.glob(os.path.join(dird8, f"D8_directions_????_{ud_str}_*.sdat"))
                 if len(path_d8) == 0:
                     self.success = False
-                    feedback.reportError(f"La matrice de directions de flux pour la sous-unité de découpage hydrique {ud_str} ne semble pas disponible.\n")
-                    return {}
-                
+                    raise QgsProcessingError(f"La matrice de directions de flux pour la sous-unité de découpage hydrographique {ud_str} ne semble pas disponible.\n")
+
                 path_d8 = path_d8[0]
                 udh = os.path.basename(path_d8)[14:18]
                 dict_d8 = load_raster(path_d8, readArray=False)
@@ -305,7 +300,7 @@ class watershed(QgsProcessingAlgorithm):
                     "pour_pts":path_occurrence_mask,
                     "output":path_watershed_SDAT
                     }, path_wbt, startupinfo)
-                
+
 
                 # Conversion de l'aire de drainage matricielle en polygone
                 path_watershed_temp_SHP = os.path.join(tempdir, f"watershed_polygonize_{ud_str}.shp")
@@ -316,7 +311,7 @@ class watershed(QgsProcessingAlgorithm):
                     'EIGHT_CONNECTEDNESS':False,
                     'OUTPUT':path_watershed_temp_SHP
                     })
-                
+
 
                 # Réparation des géométries, ajout de la projection et 
                 # transformation en multi-parties pour couvrir les cas d'un pixel (ou groupe de pixels)
@@ -367,7 +362,7 @@ class watershed(QgsProcessingAlgorithm):
                     'INTERSECT':QgsProcessingFeatureSourceDefinition(occurrence_single.id(), True),
                     'METHOD':0
                     })
-                
+
                 # Identification et sélection des segments en amont situés à au moins 1500 m de l'amont
                 # Cette valeur est seulement pour réduire le risque s'une superposition avec une S_UDH voisine.
                 # Ce critère ne sera plus pertinent lors que les S_UDH s'imbriqueront parfaitement.
@@ -402,7 +397,7 @@ class watershed(QgsProcessingAlgorithm):
                             })["OUTPUT"]
 
                         ls_upstream_watersheds.append(upstream_watersheds)
-                
+
                 context.project().removeMapLayer(vlayer_streams.id())
                 context.project().removeMapLayer(occurrence_single.id())
 
@@ -442,7 +437,7 @@ class watershed(QgsProcessingAlgorithm):
             fet.setGeometry(geom)
             fet.setAttributes([ID, udh, geom_6624.area() / 10000])  # superficie en Albers
             sink.addFeature(fet)
-            feedback.setProgress((ii+1) / nb_occurrences * 100)
+            feedback.setProgress((ii) / nb_occurrences * 100)
             feedback.pushInfo("")
 
 
@@ -451,7 +446,7 @@ class watershed(QgsProcessingAlgorithm):
 
         return {}
 
- 
+
     def postProcessAlgorithm(self, context, feedback):
         if self.success:
             output = QgsProcessingUtils.mapLayerFromString(self.sink_id, context)
