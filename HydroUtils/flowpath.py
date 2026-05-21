@@ -59,6 +59,7 @@ class flowpath(QgsProcessingAlgorithm):
 
     script_dir = os.path.dirname(__file__)
     dict_config = get_config(script_dir)
+    success = True
 
     def initAlgorithm(self, config):
         self.addParameter(
@@ -134,29 +135,35 @@ class flowpath(QgsProcessingAlgorithm):
         #    feedback.reportError("Les gouttes de type multi-parties ne peuvent être traitées. Veuillez transformer en parties uniques.\n")
         #    return {}
 
-        # Chargement des écoulement et de l'index d'UD
-        path_hydro = glob.glob(os.path.join(dird8, "Hydro_LiDAR_????.gpkg"))
+        # Chargement de l'index d'UD et des écoulements linéaires
+        path_hydro = glob.glob(os.path.join(dird8, f"Hydro_LiDAR_????.gpkg"))
         if len(path_hydro) == 0:
-            feedback.reportError(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {dird8}.")
-            return {}
-        
+            self.success = False
+            raise QgsProcessingException(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {dird8}.\n")
+
+        elif len(path_hydro) > 1:
+            self.success = False
+            raise QgsProcessingException("Plusieurs fichiers contenant des écoulements (Hydro_LiDAR_00XX.gpkg) ont été trouvés. Veuillez séparer chaque UDH dans son propre répertoire.\n")
+
         udh = path_hydro[0][-9:-5]
-        vlayer_streams = QgsVectorLayer(f"{path_hydro[0]}|layername=Hydro_{udh}_l")
+        vlayer_streams = QgsVectorLayer(f"{path_hydro[0]}|layername=RH_L")
         if vlayer_streams.hasFeatures() == 0:
-            feedback.reportError(f"La couche d'hydrographie linéaire (Hydro_{udh}_l) ne semble pas être présente ou ne contient aucune entitée.")
-            return {}
-        
-        vlayer_indexUD = QgsVectorLayer(f"{path_hydro[0]}|layername=Index_UD_{udh}_s")
+            self.success = False
+            raise QgsProcessingException("La couche d'hydrographie linéaire (RH_L) ne semble pas être présente ou ne contient aucune entitée.\n")
+
+        vlayer_indexUD = QgsVectorLayer(f"{path_hydro[0]}|layername=S_UDH")
         if vlayer_indexUD.hasFeatures() == 0:
-            feedback.reportError(f"La couche d'index des unités de drainage (Index_UD_{udh}_s) ne semble pas être présente ou ne contient aucune entitée.")
-            return {}
-        
+            self.success = False
+            raise QgsProcessingException("La couche d'index des sous-unités de découpage hydrographique (S_UDH) ne semble pas être présente ou ne contient aucune entitée.\n")
+
+
+
         # Chargement du graphe des écoulements
         # La lecture du fichier pickle est tentée en premier car plus rapide à lire qu'un GML (quelques secondes de différence)
         path_GML = glob.glob(os.path.join(dird8, f"Hydro_{udh}_l.gml"))
         if len(path_GML) == 0:
-            feedback.reportError(f"Le graphe d'écoulements (Hydro_{udh}_l.gml) ne semble pas être présent au {dird8}.")
-            return {}
+            self.success = False
+            raise QgsProcessingException(f"Le graphe d'écoulements (Hydro_{udh}_l.gml) ne semble pas être présent au {dird8}.\n")
 
         G = nx.read_gml(path_GML[0])
 
@@ -207,8 +214,8 @@ class flowpath(QgsProcessingAlgorithm):
         request = QgsFeatureRequest().setFlags(QgsFeatureRequest().NoGeometry)
         ls_ID = [feature.attribute(field_droplet) for feature in vlayer_droplet_ori.getFeatures(request)]
         if len(ls_ID) != len(set(ls_ID)):
-            feedback.reportError(f"Le champ {field_droplet} contient des doublons.")
-            return {}
+            self.success = False
+            raise QgsProcessingException(f"Le champ {field_droplet} contient des doublons.\n")
         
 
         # Fonction pour laisser tomber les valeurs ZM des géométries
@@ -234,8 +241,8 @@ class flowpath(QgsProcessingAlgorithm):
         context.project().removeMapLayer(vlayer_droplet.id())
         
         if vlayer_droplet_touched.hasFeatures() == 0:
-            feedback.reportError("Aucune goutte ne touche aux UD.")
-            return {}
+            self.success = False
+            raise QgsProcessingException("Aucune goutte ne touche aux UD.\n")
         
         vlayer_droplet_touched = processing.run("native:reprojectlayer", {
             'INPUT':vlayer_droplet_touched,
@@ -265,7 +272,8 @@ class flowpath(QgsProcessingAlgorithm):
         for ii, (fid, ID) in enumerate(ls_fids):
 
             if feedback.isCanceled():
-                return {}
+                self.success = False
+                raise QgsProcessingException("Traitement interrompu par l'utilisateur.")
 
             feedback.pushInfo(f"- Goutte {ID} ({ii+1}/{nb_droplets})")
 
@@ -300,8 +308,8 @@ class flowpath(QgsProcessingAlgorithm):
 
             path_d8 = glob.glob(os.path.join(dird8, f"D8_directions_????_{ud_str}_*.sdat"))
             if len(path_d8) == 0:
-                feedback.reportError(f"La matrice de directions de flux pour l'UD {ud_str} ne semble pas disponible.")
-                return {}
+                self.success = False
+                raise QgsProcessingException(f"La matrice de directions de flux pour l'UD {ud_str} ne semble pas disponible.")
             
             path_d8 = path_d8[0]
             udh = os.path.basename(path_d8)[14:18]
@@ -533,10 +541,14 @@ class flowpath(QgsProcessingAlgorithm):
 
  
     def postProcessAlgorithm(self, context, feedback):
-        output = QgsProcessingUtils.mapLayerFromString(self.sink_id, context)
-        output.loadNamedStyle(os.path.join(self.script_dir, "goutte.qml"))
-        output.triggerRepaint()
-        return {}
+        if self.success:
+            output = QgsProcessingUtils.mapLayerFromString(self.sink_id, context)
+            output.loadNamedStyle(os.path.join(self.script_dir, "goutte.qml"), True)
+            output.triggerRepaint()
+
+            if self.sink_id[-5:].lower() == ".gpkg":
+                output.saveStyleToDatabase(name="Goutte", description="", useAsDefault=True, uiFileContent="")
+
 
     def name(self):
         return 'flowpath'

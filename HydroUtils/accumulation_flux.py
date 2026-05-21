@@ -78,7 +78,7 @@ class accumulationFlux(QgsProcessingAlgorithm):
         feedback.setProgress(1)
         for ii, pntr in enumerate(ls_pntr):
             if feedback.isCanceled():
-                return {}
+                raise QgsProcessingException("Traitement interrompu par l'utilisateur.")
 
             feedback.pushInfo(f"{os.path.basename(pntr)} ({ii+1}/{nb_pntr})")
 

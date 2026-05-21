@@ -69,17 +69,19 @@ class flowgraph(QgsProcessingAlgorithm):
         indir = self.parameterAsString(parameters, 'INPUT_indir', context)
 
 
-        # Chargment de la couche d'hydrographie linéaire
-        path_hydro = glob.glob(os.path.join(indir, "Hydro_LiDAR_????.gpkg"))
+        # Chargement des écoulements linéaires
+        path_hydro = glob.glob(os.path.join(indir, f"Hydro_LiDAR_????.gpkg"))
         if len(path_hydro) == 0:
-            feedback.reportError(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas disponible.")
-            return {}
-        
+            raise QgsProcessingException(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {indir}.\n")
+
+        elif len(path_hydro) > 1:
+            raise QgsProcessingException("Plusieurs fichiers contenant des écoulements (Hydro_LiDAR_00XX.gpkg) ont été trouvés. Veuillez séparer chaque UDH dans son propre répertoire.\n")
+
         udh = path_hydro[0][-9:-5]
-        vlayer_streams = QgsVectorLayer(f"{path_hydro[0]}|layername=Hydro_{udh}_l")
+        vlayer_streams = QgsVectorLayer(f"{path_hydro[0]}|layername=RH_L")
         if vlayer_streams.hasFeatures() == 0:
-            feedback.reportError(f"La couche d'hydrographie linéaire (Hydro_{udh}_l) ne semble pas être présente ou ne contient aucune entitée.")
-            return {}
+            raise QgsProcessingException("La couche d'hydrographie linéaire (RH_L) ne semble pas être présente ou ne contient aucune entitée.\n")
+
 
 
         # Store the old and new unique FIDs in new fields
@@ -146,7 +148,7 @@ class flowgraph(QgsProcessingAlgorithm):
                 feedback.reportError(f"Stream located around x:{round(pt_start[0].x(), 1)} y:{round(pt_start[0].y(), 1)} has its ends closer than the tolerance value ({tolerance}).")
         
         if tolerance_failed:
-            return {}
+            raise QgsProcessingException("Fail\n")
 
 
         # Loop executed as long as some FIDs haven't been met

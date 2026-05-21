@@ -127,22 +127,22 @@ class watershed(QgsProcessingAlgorithm):
         path_index = glob.glob(os.path.join(dird8, f"Hydro_LiDAR_????.gpkg"))
         if len(path_index) == 0:
             self.success = False
-            raise QgsProcessingError(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {dird8}.\n")
+            raise QgsProcessingException(f"Le fichier contenant les écoulements (Hydro_LiDAR_00XX.gpkg) ne semble pas être présent au {dird8}.\n")
 
         elif len(path_index) > 1:
             self.success = False
-            raise QgsProcessingError("Plusieurs fichiers contenant des écoulements (Hydro_LiDAR_00XX.gpkg) ont été trouvés. Veuillez séparer chaque UDH dans son propre répertoire.\n")
+            raise QgsProcessingException("Plusieurs fichiers contenant des écoulements (Hydro_LiDAR_00XX.gpkg) ont été trouvés. Veuillez séparer chaque UDH dans son propre répertoire.\n")
 
         udh = path_index[0][-9:-5]
         vlayer_streams = QgsVectorLayer(f"{path_index[0]}|layername=RH_L")
         if vlayer_streams.hasFeatures() == 0:
             self.success = False
-            raise QgsProcessingError(f"La couche d'hydrographie linéaire (RH_L) ne semble pas être présente ou ne contient aucune entitée.\n")
+            raise QgsProcessingException("La couche d'hydrographie linéaire (RH_L) ne semble pas être présente ou ne contient aucune entitée.\n")
 
         vlayer_indexUD = QgsVectorLayer(f"{path_index[0]}|layername=S_UDH")
         if vlayer_indexUD.hasFeatures() == 0:
             self.success = False
-            raise QgsProcessingError(f"La couche d'index des sous-unités de découpage hydrographique (S_UDH) ne semble pas être présente ou ne contient aucune entitée.\n")
+            raise QgsProcessingException("La couche d'index des sous-unités de découpage hydrographique (S_UDH) ne semble pas être présente ou ne contient aucune entitée.\n")
 
 
         # Création du QgsFeatureSink de sortie contenant les bassins versants de chaque occurrence
@@ -179,7 +179,8 @@ class watershed(QgsProcessingAlgorithm):
         request = QgsFeatureRequest().setFlags(QgsFeatureRequest().NoGeometry)
         ls_ID = [feature.attribute(field_occurrences) for feature in vlayer_occurrences_ori.getFeatures(request)]
         if len(ls_ID) != len(set(ls_ID)):
-            raise QgsProcessingError(f"Le champ {field_occurrences} contient des doublons.")
+            self.success = False
+            raise QgsProcessingException(f"Le champ {field_occurrences} contient des doublons.")
 
 
         # Sélection des occurrences à utiliser
@@ -200,7 +201,7 @@ class watershed(QgsProcessingAlgorithm):
 
         if vlayer_occurrences_touched.hasFeatures() == 0:
             self.success = False
-            raise QgsProcessingError("Aucune occurrence ne touche à l'UDH.\n")
+            raise QgsProcessingException("Aucune occurrence ne touche à l'UDH.\n")
 
         ID_ori = set([str(feature.attribute(field_occurrences)) for feature in vlayer_occurrences.getSelectedFeatures(request)])
         ID_touched = set([str(feature.attribute(field_occurrences)) for feature in vlayer_occurrences_touched.getFeatures(request)])
@@ -282,7 +283,7 @@ class watershed(QgsProcessingAlgorithm):
                 path_d8 = glob.glob(os.path.join(dird8, f"D8_directions_????_{ud_str}_*.sdat"))
                 if len(path_d8) == 0:
                     self.success = False
-                    raise QgsProcessingError(f"La matrice de directions de flux pour la sous-unité de découpage hydrographique {ud_str} ne semble pas disponible.\n")
+                    raise QgsProcessingException(f"La matrice de directions de flux pour la sous-unité de découpage hydrographique {ud_str} ne semble pas disponible.\n")
 
                 path_d8 = path_d8[0]
                 udh = os.path.basename(path_d8)[14:18]
