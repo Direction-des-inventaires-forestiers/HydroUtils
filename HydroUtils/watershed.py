@@ -249,7 +249,7 @@ class watershed(QgsProcessingAlgorithm):
             # Création du répertoire temporaire
             ID_strip = ID
             for x in [" ","\\","/",":","*","?","\"","<",">","|"]:
-                ID_strip.replace(x,'')
+                ID_strip = ID_strip.replace(x,'')
             now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             tempdir = os.path.join(roottempdir, f"HydroUtils_occurrence_{ID_strip}_{now}")
             os.makedirs(tempdir)

@@ -74,22 +74,16 @@ def run_wbt(toolname, dict_params, path_wbt, startupinfo=None):
 
 
 # Charge un raster GeoTIFF, FLT ou SDAT en tant que numpy array
-# Possibilité de seulement extraire les médatonnées pour plus
-# de rapidité
+# Possibilité de seulement extraire les métadonnées pour plus de rapidité
 def load_raster(path_raster, no_band=1, readArray=True):
-    extension = os.path.basename(path_raster).lower().split(".")[-1]
-    drivername = ["GTiff", "EHdr", "SAGA"][["tif", "flt", "sdat"].index(extension)]
-    
-    driver = gdal.GetDriverByName(drivername)
-    ds = gdal.Open(path_raster)
-    
-    proj = ds.GetProjection()
-    georef = ds.GetGeoTransform()
-    xsize = ds.RasterXSize
-    ysize = ds.RasterYSize
-    band = ds.GetRasterBand(no_band)
-    nodata = band.GetNoDataValue()
-    arr = band.ReadAsArray() if readArray else None
+    with gdal.Open(path_raster) as ds:
+        proj = ds.GetProjection()
+        georef = ds.GetGeoTransform()
+        xsize = ds.RasterXSize
+        ysize = ds.RasterYSize
+        band = ds.GetRasterBand(no_band)
+        nodata = band.GetNoDataValue()
+        arr = band.ReadAsArray() if readArray else None
     
     return {"array":arr, "proj":proj, "georef":georef, "xsize":xsize, "ysize":ysize, "nodata":nodata}
 
