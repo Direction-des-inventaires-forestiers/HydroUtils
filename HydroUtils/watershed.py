@@ -294,32 +294,34 @@ class watershed(QgsProcessingAlgorithm):
 
                 # Rasterisation de l'occurrence dans la projection de l'UD
                 path_d8 = glob.glob(os.path.join(dird8, f"D8_directions_????_{ud_str}_*.sdat"))
+                path_d8 += glob.glob(os.path.join(dird8, f"D8_directions_????_{ud_str}_*.tif"))
                 if len(path_d8) == 0:
                     self.success = False
                     raise QgsProcessingException(f"La matrice de directions de flux pour la sous-unité de découpage hydrographique {ud_str} ne semble pas disponible.\n")
 
                 path_d8 = path_d8[0]
+                ext_d8 = os.path.splitext(path_d8)[-1]
                 udh = os.path.basename(path_d8)[14:18]
                 dict_d8 = load_raster(path_d8, readArray=False)
                 d8Crs = QgsCoordinateReferenceSystem("EPSG:6622")
 
-                path_occurrence_mask = os.path.join(tempdir, f"mask_occurrence_{ud_str}.sdat")
+                path_occurrence_mask = os.path.join(tempdir, f"mask_occurrence_{ud_str}{ext_d8}")
                 rasterize_AOI(vlayer_occurrence_selected, d8Crs.authid(), dict_d8["georef"], dict_d8["xsize"], dict_d8["ysize"], path_occurrence_mask)
 
 
                 # Extraction du bassin versant via le masque
-                path_watershed_SDAT = os.path.join(tempdir, f"watershed_{ud_str}.sdat")
+                path_watershed_raster = os.path.join(tempdir, f"watershed_{ud_str}{ext_d8}")
                 run_wbt("Watershed", {
                     "d8_pntr":path_d8,
                     "pour_pts":path_occurrence_mask,
-                    "output":path_watershed_SDAT
+                    "output":path_watershed_raster
                     }, path_wbt, startupinfo)
 
 
                 # Conversion de l'aire de drainage matricielle en polygone
                 path_watershed_temp_SHP = os.path.join(tempdir, f"watershed_polygonize_{ud_str}.shp")
                 processing.run("gdal:polygonize", {
-                    'INPUT':path_watershed_SDAT,
+                    'INPUT':path_watershed_raster,
                     'BAND':1,
                     'FIELD':'DN',
                     'EIGHT_CONNECTEDNESS':False,

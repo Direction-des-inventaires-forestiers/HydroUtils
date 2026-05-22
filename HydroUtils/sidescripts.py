@@ -137,7 +137,7 @@ def rasterize_AOI(vlayer_AOI, epsg_str, georef, xsize, ysize, path_mask):
         'HEIGHT':pixel_size,
         'EXTENT':extent_ref,
         'NODATA':nodata,
-        'OPTIONS':'NBITS=1',
+        'OPTIONS':'',
         'DATA_TYPE':0,
         'INIT':nodata,
         'OUTPUT':path_mask
