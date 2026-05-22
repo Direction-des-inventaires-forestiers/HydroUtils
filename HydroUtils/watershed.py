@@ -64,6 +64,7 @@ class watershed(QgsProcessingAlgorithm):
     script_dir = os.path.dirname(__file__)
     dict_config = get_config(script_dir)
     success = True
+    ls_tempdir = []
 
     def initAlgorithm(self, config):
         self.addParameter(
@@ -191,12 +192,16 @@ class watershed(QgsProcessingAlgorithm):
 
         # Validation que les occurrences touchent bel et bien aux UD fournies
         context.project().addMapLayer(vlayer_occurrences, False)
-        vlayer_occurrences_touched = processing.run("native:extractbylocation", {
+        vlayer_occurrences_touched_str = processing.run("native:extractbylocation", {
             'INPUT':QgsProcessingFeatureSourceDefinition(vlayer_occurrences.id(), True),
             'PREDICATE':[0],
             'INTERSECT':vlayer_indexUD,
             'OUTPUT':'TEMPORARY_OUTPUT'
-            })["OUTPUT"]
+            },
+            is_child_algorithm=True,
+            context=context,
+            )["OUTPUT"]
+        vlayer_occurrences_touched = QgsProcessingUtils.mapLayerFromString(vlayer_occurrences_touched_str, context)
         context.project().removeMapLayer(vlayer_occurrences.id())
 
         if vlayer_occurrences_touched.hasFeatures() == 0:
@@ -259,17 +264,25 @@ class watershed(QgsProcessingAlgorithm):
 
             # Détermine quelles sont les UD touchées par l'occurrence
             vlayer_occurrences_touched.selectByIds([fid])
-            vlayer_occurrence_selected = processing.run("native:saveselectedfeatures", {
+            vlayer_occurrence_selected_str = processing.run("native:saveselectedfeatures", {
                 'INPUT':vlayer_occurrences_touched,
                 'OUTPUT':'TEMPORARY_OUTPUT'
-                })["OUTPUT"]
+                },
+                is_child_algorithm=True,
+                context=context,
+                )["OUTPUT"]
+            vlayer_occurrence_selected = QgsProcessingUtils.mapLayerFromString(vlayer_occurrence_selected_str, context)
 
-            vlayer_indexUD_touched = processing.run("native:extractbylocation", {
+            vlayer_indexUD_touched_str = processing.run("native:extractbylocation", {
                 'INPUT':vlayer_indexUD,
                 'PREDICATE':[0],
                 'INTERSECT':vlayer_occurrence_selected,
                 'OUTPUT':'TEMPORARY_OUTPUT'
-                })["OUTPUT"]
+                },
+                is_child_algorithm=True,
+                context=context,
+                )["OUTPUT"]
+            vlayer_indexUD_touched = QgsProcessingUtils.mapLayerFromString(vlayer_indexUD_touched_str, context)
 
 
             # Bouclage pour extraire le bassin versant pour chaque UD touchée par l'occurrence
@@ -311,7 +324,9 @@ class watershed(QgsProcessingAlgorithm):
                     'FIELD':'DN',
                     'EIGHT_CONNECTEDNESS':False,
                     'OUTPUT':path_watershed_temp_SHP
-                    })
+                    },
+                    is_child_algorithm=True,
+                    )
 
 
                 # Réparation des géométries, ajout de la projection et 
@@ -320,9 +335,29 @@ class watershed(QgsProcessingAlgorithm):
                 # Normalement, le paramètre 'EIGHT_CONNECTEDNESS':True de gdal:polygonize
                 # devrait justement s'en charger, mais j'ai eu un cas où ça n'a pas fonctionné comme prévu.
                 path_watershed_SHP = os.path.join(tempdir, f"watershed_fixed_{ud_str}.shp")
-                vlayer_watersehd_fixed = processing.run("native:fixgeometries", {'INPUT':path_watershed_temp_SHP, 'OUTPUT':'TEMPORARY_OUTPUT'})["OUTPUT"]
-                processing.run("native:collect", {'INPUT':vlayer_watersehd_fixed,'FIELD':['DN'],'OUTPUT':path_watershed_SHP})
-                processing.run("qgis:definecurrentprojection", {'INPUT':path_watershed_SHP, 'CRS':d8Crs})
+                vlayer_watershed_fixed_str = processing.run("native:fixgeometries", {
+                    'INPUT':path_watershed_temp_SHP,
+                    'OUTPUT':'TEMPORARY_OUTPUT'
+                    },
+                    is_child_algorithm=True,
+                    context=context,
+                    )["OUTPUT"]
+                vlayer_watershed_fixed = QgsProcessingUtils.mapLayerFromString(vlayer_watershed_fixed_str, context)
+
+                processing.run("native:collect", {
+                    'INPUT':vlayer_watershed_fixed,
+                    'FIELD':['DN'],
+                    'OUTPUT':path_watershed_SHP
+                    },
+                    is_child_algorithm=True,
+                    context=context,
+                    )
+
+                processing.run("qgis:definecurrentprojection", {
+                    'INPUT':path_watershed_SHP,
+                    'CRS':d8Crs
+                    },
+                    )
 
                 ls_path_occurrences_watersheds.append(path_watershed_SHP)
 
@@ -335,10 +370,14 @@ class watershed(QgsProcessingAlgorithm):
             # ATTENTION ! Il est assumé que les occurences en entrées intersectent des écoulements. Si ce n'est pas le cas,
             #             et que le bassin versant englobe un S_UDH en amont, cette dernière sera manquée car la recherche
             #             se base sur l'analyse réseau des écoulements vectoriels.
-            occurrence_single = processing.run("native:multiparttosingleparts", {
+            occurrence_single_str = processing.run("native:multiparttosingleparts", {
                 'INPUT':vlayer_occurrence_selected,
                 'OUTPUT':'TEMPORARY_OUTPUT'
-                })["OUTPUT"]
+                },
+                is_child_algorithm=True,
+                context=context,
+                )["OUTPUT"]
+            occurrence_single = QgsProcessingUtils.mapLayerFromString(occurrence_single_str, context)
 
             ls_upstream_watersheds = []
             for feature in occurrence_single.getFeatures():
@@ -362,7 +401,10 @@ class watershed(QgsProcessingAlgorithm):
                     'PREDICATE':[0],
                     'INTERSECT':QgsProcessingFeatureSourceDefinition(occurrence_single.id(), True),
                     'METHOD':0
-                    })
+                    },
+                    is_child_algorithm=True,
+                    context=context,
+                    )
 
                 # Identification et sélection des segments en amont situés à au moins 1500 m de l'amont
                 # Cette valeur est seulement pour réduire le risque s'une superposition avec une S_UDH voisine.
@@ -382,7 +424,10 @@ class watershed(QgsProcessingAlgorithm):
                         'PREDICATE':[1],  # Segments complètement contenus seulement
                         'INTERSECT':QgsProcessingFeatureSourceDefinition(vlayer_streams.id(), True),
                         'METHOD':0
-                        })
+                        },
+                        is_child_algorithm=True,
+                        context=context,
+                        )
 
                     # Identification des S_UDH en amont
                     set_ud_intersect = set([feature["S_UDH"] for feature in vlayer_indexUD.getSelectedFeatures()])
@@ -391,11 +436,15 @@ class watershed(QgsProcessingAlgorithm):
 
                     if len(set_ud_upstream):
                         # Extraction et fusion des S_UDH pertinentes
-                        upstream_watersheds = processing.run("native:extractbyexpression", {
+                        upstream_watersheds_str = processing.run("native:extractbyexpression", {
                             'INPUT':vlayer_indexUD,
                             'EXPRESSION':f'"S_UDH" IN ({",".join([str(x) for x in set_ud_upstream])})',
                             'OUTPUT':'TEMPORARY_OUTPUT'
-                            })["OUTPUT"]
+                            },
+                            is_child_algorithm=True,
+                            context=context,
+                            )["OUTPUT"]
+                        upstream_watersheds = QgsProcessingUtils.mapLayerFromString(upstream_watersheds_str, context)
 
                         ls_upstream_watersheds.append(upstream_watersheds)
 
@@ -406,25 +455,37 @@ class watershed(QgsProcessingAlgorithm):
             # Fusion des bassins versants
             ls_watersheds = ls_path_occurrences_watersheds
             ls_watersheds.extend(ls_upstream_watersheds)
-            vlayer_watershed = processing.run("native:mergevectorlayers", {
+            vlayer_watershed_str = processing.run("native:mergevectorlayers", {
                 'LAYERS':ls_watersheds,
                 'OUTPUT':'TEMPORARY_OUTPUT'
-                })["OUTPUT"]
+                },
+                is_child_algorithm=True,
+                context=context,
+                )["OUTPUT"]
+            vlayer_watershed = QgsProcessingUtils.mapLayerFromString(vlayer_watershed_str, context)
 
-            vlayer_watershed = processing.run("native:dissolve", {
+            vlayer_watershed_str = processing.run("native:dissolve", {
                 'INPUT':vlayer_watershed,
                 'FIELD':[],
                 'OUTPUT':'TEMPORARY_OUTPUT'
-                })["OUTPUT"]
+                },
+                is_child_algorithm=True,
+                context=context,
+                )["OUTPUT"]
+            vlayer_watershed = QgsProcessingUtils.mapLayerFromString(vlayer_watershed_str, context)
 
             # Retrait des trous entre UD... éventuellement il faudrait plutôt que je règle ce problème à la
             # source en ayant des matrices de direction de flux qui s'imbriquent parfaitement. Il faut donc
             # régler le problème d'incertitude avec les modélisations adjacentes.
-            vlayer_watershed = processing.run("native:deleteholes", {
+            vlayer_watershed_str = processing.run("native:deleteholes", {
                 'INPUT':vlayer_watershed,
                 'MIN_AREA':99999,
                 'OUTPUT':'TEMPORARY_OUTPUT'
-                })["OUTPUT"]
+                },
+                is_child_algorithm=True,
+                context=context,
+                )["OUTPUT"]
+            vlayer_watershed = QgsProcessingUtils.mapLayerFromString(vlayer_watershed_str, context)
 
 
             # Ajout de la géométrie au sink en faisant suivre le numéro de l'occurrence ainsi que le numéro d'UDH
@@ -443,12 +504,21 @@ class watershed(QgsProcessingAlgorithm):
 
 
             # Suppression des fichiers temporaires
-            shutil.rmtree(tempdir)
+            self.ls_tempdir.append(tempdir)
+            for file in os.listdir(tempdir):
+                # Nécessaire à cause de de "path_watershed_temp_SHP" et "path_watershed_SHP" qui collent
+                try:
+                    os.remove(os.path.join(tempdir, file))
+                except:
+                    pass
 
         return {}
 
 
     def postProcessAlgorithm(self, context, feedback):
+        str_tempdir = "\n".join(self.ls_tempdir)
+        feedback.pushWarning(f"Les répertoires temporaires suivants n'ont pu être totalement supprimés:\n{str_tempdir}\n")
+
         if self.success:
             output = QgsProcessingUtils.mapLayerFromString(self.sink_id, context)
             output.loadNamedStyle(os.path.join(self.script_dir, "bv.qml"), True)

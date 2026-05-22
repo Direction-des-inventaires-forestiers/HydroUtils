@@ -90,11 +90,15 @@ class flowgraph(QgsProcessingAlgorithm):
         # FIDs from starting and ending vertices
         fids_ori = [f.id() for f in vlayer_streams.getFeatures(QgsFeatureRequest().setFlags(QgsFeatureRequest().NoGeometry))]
 
-        vlayer_streams = processing.run("native:reprojectlayer", {
+        vlayer_streams_str = processing.run("native:reprojectlayer", {
             'INPUT':vlayer_streams,
             'TARGET_CRS':vlayer_streams.crs(),
             'OUTPUT':'TEMPORARY_OUTPUT'
-            })["OUTPUT"]
+            },
+            is_child_algorithm=True,
+            context=context,
+            )["OUTPUT"]
+        vlayer_streams = QgsProcessingUtils.mapLayerFromString(vlayer_streams_str, context)
         
         with edit(vlayer_streams):
             field_fid_new = "FID_new"
@@ -109,17 +113,25 @@ class flowgraph(QgsProcessingAlgorithm):
 
 
         # Extraction séparée des premiers et derniers sommets de chaque segment
-        vertices_start = processing.run("native:extractspecificvertices", {
+        vertices_start_str = processing.run("native:extractspecificvertices", {
             'INPUT':vlayer_streams,
             'VERTICES':'0',
             'OUTPUT':'TEMPORARY_OUTPUT'
-            })["OUTPUT"]
+            },
+            is_child_algorithm=True,
+            context=context,
+            )["OUTPUT"]
+        vertices_start = QgsProcessingUtils.mapLayerFromString(vertices_start_str, context)
 
-        vertices_end = processing.run("native:extractspecificvertices", {
+        vertices_end_str = processing.run("native:extractspecificvertices", {
             'INPUT':vlayer_streams,
             'VERTICES':'-1',
             'OUTPUT':'TEMPORARY_OUTPUT'
-            })["OUTPUT"]
+            },
+            is_child_algorithm=True,
+            context=context,
+            )["OUTPUT"]
+        vertices_end = QgsProcessingUtils.mapLayerFromString(vertices_end_str, context)
 
 
         # Prepare core objects for the work to come
